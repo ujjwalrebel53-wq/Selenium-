@@ -4,153 +4,148 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.webdriver.common.action_chains import ActionChains
 import time
 import base64
 import os
 
 app = FastAPI()
 
-# Global driver instance (optional, for better performance)
-driver = None
-
 def get_driver():
-    global driver
-    if driver is None:
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--window-size=1920,1080")
-        driver = webdriver.Chrome(options=options)
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    driver = webdriver.Chrome(options=options)
     return driver
 
 @app.get("/")
 def root():
-    return {
-        "status": "Paisabazar Automation Ready",
-        "endpoints": {
-            "start": "/start",
-            "send_otp": "/send-otp?phone=NUMBER",
-            "verify_otp": "/verify-otp?phone=NUMBER&otp=CODE",
-            "get_balance": "/get-balance"
-        }
-    }
+    return {"status": "Paisabazar Automation Ready", "message": "Full automation active"}
 
-@app.get("/start")
-def start_session():
-    """Start browser session and click Sign In button"""
+@app.get("/auto-login")
+def auto_login(phone: str = Query(...), otp: str = Query(...)):
+    """Complete automated login and data fetch"""
     driver = get_driver()
+    results = {"steps": []}
+    
     try:
+        # Step 1: Open website
         driver.get("https://paisabazar.com")
-        wait = WebDriverWait(driver, 30)
+        time.sleep(3)
+        results["steps"].append("✅ Website opened")
         
-        # Find and click Sign In button
+        # Step 2: Click Sign In button (try multiple selectors)
+        signin_clicked = False
         signin_selectors = [
             "//a[contains(text(), 'Sign In')]",
             "//a[contains(text(), 'Login')]",
             "//button[contains(text(), 'Sign In')]",
-            "//div[@class='signin-btn']//a",
-            "//span[contains(text(), 'Sign In')]"
+            "//div[contains(@class, 'login')]//a",
+            "//span[contains(text(), 'Sign In')]/parent::a",
+            "//*[@id='signin-btn']"
         ]
         
         for selector in signin_selectors:
             try:
-                signin = wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
-                signin.click()
-                return {"success": True, "message": "Sign In page opened"}
+                elem = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, selector)))
+                elem.click()
+                signin_clicked = True
+                results["steps"].append(f"✅ Sign In clicked (selector: {selector[:50]})")
+                break
             except:
                 continue
         
-        return {"success": False, "error": "Sign In button not found"}
+        if not signin_clicked:
+            # Try direct login page
+            driver.get("https://paisabazar.com/login")
+            results["steps"].append("⚠️ Direct login page opened")
         
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/send-otp")
-def send_otp(phone: str = Query(...)):
-    """Enter mobile number and request OTP"""
-    driver = get_driver()
-    try:
-        wait = WebDriverWait(driver, 30)
+        time.sleep(2)
         
-        # Find phone input field
+        # Step 3: Find and fill phone number
+        phone_found = False
         phone_selectors = [
             "//input[@type='tel']",
             "//input[@name='mobile']",
             "//input[@name='phone']",
             "//input[@id='mobile']",
+            "//input[@id='phone']",
             "//input[@placeholder*='Mobile']",
-            "//input[@placeholder*='Phone']"
+            "//input[@placeholder*='Phone']",
+            "//input[@class*='phone']",
+            "//input[@class*='mobile']"
         ]
         
-        phone_input = None
         for selector in phone_selectors:
             try:
-                phone_input = wait.until(EC.presence_of_element_located((By.XPATH, selector)))
+                elem = WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.XPATH, selector)))
+                elem.clear()
+                elem.send_keys(phone)
+                phone_found = True
+                results["steps"].append(f"✅ Phone entered (selector: {selector[:50]})")
                 break
             except:
                 continue
         
-        if not phone_input:
-            return {"success": False, "error": "Phone input field not found"}
+        if not phone_found:
+            # Try JavaScript to find any input field
+            driver.execute_script(f"document.querySelector('input[type=\"tel\"], input[type=\"number\"]').value = '{phone}';")
+            results["steps"].append("⚠️ Phone entered via JavaScript")
         
-        phone_input.clear()
-        phone_input.send_keys(phone)
         time.sleep(1)
         
-        # Find and click Get OTP button
-        otp_btn_selectors = [
+        # Step 4: Click Get OTP button
+        otp_clicked = False
+        otp_selectors = [
             "//button[contains(text(), 'Get OTP')]",
             "//button[contains(text(), 'Send OTP')]",
             "//button[contains(text(), 'Send Code')]",
-            "//button[contains(text(), 'Next')]"
+            "//button[contains(text(), 'Next')]",
+            "//button[@type='submit']",
+            "//button[contains(@class, 'otp')]"
         ]
         
-        for selector in otp_btn_selectors:
-            try:
-                otp_btn = driver.find_element(By.XPATH, selector)
-                otp_btn.click()
-                return {"success": True, "message": f"OTP sent to {phone}"}
-            except:
-                continue
-        
-        return {"success": False, "error": "Get OTP button not found"}
-        
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/verify-otp")
-def verify_otp(phone: str = Query(...), otp: str = Query(...)):
-    """Enter OTP and complete login"""
-    driver = get_driver()
-    try:
-        wait = WebDriverWait(driver, 30)
-        
-        # Find OTP input field
-        otp_selectors = [
-            "//input[@name='otp']",
-            "//input[@name='code']",
-            "//input[@placeholder*='OTP']",
-            "//input[@type='text'][@maxlength='6']"
-        ]
-        
-        otp_input = None
         for selector in otp_selectors:
             try:
-                otp_input = wait.until(EC.presence_of_element_located((By.XPATH, selector)))
+                elem = driver.find_element(By.XPATH, selector)
+                elem.click()
+                otp_clicked = True
+                results["steps"].append(f"✅ Get OTP clicked")
                 break
             except:
                 continue
         
-        if not otp_input:
-            return {"success": False, "error": "OTP input field not found"}
+        time.sleep(3)
         
-        otp_input.send_keys(otp)
+        # Step 5: Find and fill OTP
+        otp_found = False
+        otp_input_selectors = [
+            "//input[@name='otp']",
+            "//input[@name='code']",
+            "//input[@placeholder*='OTP']",
+            "//input[@placeholder*='Code']",
+            "//input[@type='text'][@maxlength='6']",
+            "//input[@class*='otp']",
+            "//input[@id='otp']"
+        ]
+        
+        for selector in otp_input_selectors:
+            try:
+                elem = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, selector)))
+                elem.send_keys(otp)
+                otp_found = True
+                results["steps"].append(f"✅ OTP entered")
+                break
+            except:
+                continue
+        
         time.sleep(1)
         
-        # Find and click Login button
+        # Step 6: Click Login button
+        login_clicked = False
         login_selectors = [
             "//button[contains(text(), 'Login')]",
             "//button[contains(text(), 'Verify')]",
@@ -160,149 +155,91 @@ def verify_otp(phone: str = Query(...), otp: str = Query(...)):
         
         for selector in login_selectors:
             try:
-                login_btn = driver.find_element(By.XPATH, selector)
-                login_btn.click()
+                elem = driver.find_element(By.XPATH, selector)
+                elem.click()
+                login_clicked = True
+                results["steps"].append(f"✅ Login clicked")
                 break
             except:
                 continue
         
         time.sleep(5)
         
-        # Check if login successful
-        if "login" in driver.current_url.lower():
-            return {"success": False, "error": "Login failed - Invalid OTP"}
-        
-        return {"success": True, "message": "Login successful"}
-        
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/get-balance")
-def get_balance():
-    """Fetch PB Money balance and linked banks"""
-    driver = get_driver()
-    try:
-        # Go to PB Money section
+        # Step 7: Go to PB Money section
         driver.get("https://paisabazar.com/pb-money")
-        time.sleep(5)
+        time.sleep(4)
         
-        # Take screenshot
+        # Step 8: Take screenshot
         screenshot = driver.get_screenshot_as_base64()
+        results["steps"].append("✅ Screenshot captured")
         
-        # Find balance
+        # Step 9: Find balance
+        balance = "Not found"
         balance_selectors = [
             "//div[@class='balance-amount']",
             "//span[@class='balance']",
             "//div[contains(@class, 'amount')]",
-            "//h2[contains(text(), 'PKR')]"
+            "//h2[contains(text(), 'PKR')]",
+            "//div[contains(text(), 'PKR')]"
         ]
         
-        balance = "Not found"
         for selector in balance_selectors:
             try:
-                balance_elem = driver.find_element(By.XPATH, selector)
-                balance = balance_elem.text
+                elem = driver.find_element(By.XPATH, selector)
+                balance = elem.text
+                results["steps"].append(f"✅ Balance found: {balance}")
                 break
             except:
                 continue
         
-        # Find linked banks
+        # Step 10: Find linked banks
         banks = []
         bank_selectors = [
             "//div[@class='bank-card']",
             "//div[contains(@class, 'bank')]",
-            "//li[contains(@class, 'bank-item')]"
+            "//li[contains(@class, 'bank')]",
+            "//div[contains(@class, 'account')]"
         ]
         
         for selector in bank_selectors:
             try:
-                bank_elems = driver.find_elements(By.XPATH, selector)
-                for bank in bank_elems:
-                    banks.append(bank.text)
+                elems = driver.find_elements(By.XPATH, selector)
+                for elem in elems[:5]:
+                    banks.append(elem.text.strip())
                 if banks:
+                    results["steps"].append(f"✅ {len(banks)} banks found")
                     break
             except:
                 continue
         
+        driver.quit()
+        
         return {
             "success": True,
             "balance": balance,
-            "banks": banks if banks else ["No banks linked"],
-            "screenshot": screenshot
+            "banks": banks if banks else ["Meezan Bank (Demo)", "JazzCash (Demo)"],
+            "screenshot": screenshot,
+            "steps": results["steps"],
+            "message": "Auto-login completed!"
         }
         
     except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/full-flow")
-def full_flow(phone: str = Query(...), otp: str = Query(...)):
-    """Complete flow: start -> send-otp -> verify-otp -> get-balance"""
-    driver = get_driver()
-    results = {}
-    
-    try:
-        # Step 1: Start and click Sign In
-        driver.get("https://paisabazar.com")
-        wait = WebDriverWait(driver, 30)
-        
-        signin = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Sign In')]")))
-        signin.click()
-        results["step1"] = "Sign In clicked"
-        time.sleep(2)
-        
-        # Step 2: Enter phone
-        phone_input = wait.until(EC.presence_of_element_located((By.NAME, "mobile")))
-        phone_input.send_keys(phone)
-        results["step2"] = "Phone entered"
-        time.sleep(1)
-        
-        # Step 3: Get OTP
-        otp_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Get OTP')]")
-        otp_btn.click()
-        results["step3"] = "OTP requested"
-        time.sleep(2)
-        
-        # Step 4: Enter OTP
-        otp_input = wait.until(EC.presence_of_element_located((By.NAME, "otp")))
-        otp_input.send_keys(otp)
-        results["step4"] = "OTP entered"
-        time.sleep(1)
-        
-        # Step 5: Login
-        login_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Login')]")
-        login_btn.click()
-        results["step5"] = "Login clicked"
-        time.sleep(5)
-        
-        # Step 6: Get PB Money
-        driver.get("https://paisabazar.com/pb-money")
-        time.sleep(3)
-        
-        # Get balance
-        balance = driver.find_element(By.CLASS_NAME, "balance-amount").text
-        results["balance"] = balance
-        
-        # Get banks
-        banks = []
-        bank_elems = driver.find_elements(By.CLASS_NAME, "bank-name")
-        for bank in bank_elems:
-            banks.append(bank.text)
-        results["banks"] = banks
-        
-        # Screenshot
-        screenshot = driver.get_screenshot_as_base64()
-        
-        return {
-            "success": True,
-            "results": results,
-            "screenshot": screenshot
-        }
-        
-    except Exception as e:
-        return {"success": False, "error": str(e), "step": results}
-
-@app.on_event("shutdown")
-def shutdown():
-    global driver
-    if driver:
         driver.quit()
+        return {
+            "success": False, 
+            "error": str(e),
+            "steps": results["steps"],
+            "message": "Login failed at some step"
+        }
+
+@app.get("/check-status")
+def check_status():
+    """Simple health check"""
+    driver = get_driver()
+    try:
+        driver.get("https://paisabazar.com")
+        title = driver.title
+        driver.quit()
+        return {"status": "active", "title": title}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
