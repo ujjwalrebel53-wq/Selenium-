@@ -16,6 +16,7 @@ def get_driver():
     global driver
     if driver is None:
         options = Options()
+        options.binary_location = "/usr/bin/google-chrome"
         options.add_argument("--headless")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
@@ -24,9 +25,14 @@ def get_driver():
         options.add_argument("--window-size=1280,720")
         options.add_argument("--disable-extensions")
         options.add_argument("--disable-setuid-sandbox")
+        options.add_argument("--disable-background-networking")
+        options.add_argument("--disable-default-apps")
+        options.add_argument("--disable-sync")
+        options.add_argument("--no-first-run")
         options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
-        # selenium/standalone-chrome image mein Chrome already set hota hai
-        driver = webdriver.Chrome(options=options)
+
+        service = Service("/usr/local/bin/chromedriver")
+        driver = webdriver.Chrome(service=service, options=options)
     return driver
 
 def reset_driver():
@@ -57,29 +63,18 @@ def root():
 @app.get("/debug-chrome")
 def debug_chrome():
     results = {}
-    results["chromium_which"] = shutil.which("chromium")
-    results["chromium_browser_which"] = shutil.which("chromium-browser")
-    results["chromedriver_which"] = shutil.which("chromedriver")
     results["google_chrome_which"] = shutil.which("google-chrome")
     results["google_chrome_stable"] = shutil.which("google-chrome-stable")
+    results["chromedriver_which"] = shutil.which("chromedriver")
 
     try:
-        r = subprocess.run(["find", "/usr", "-name", "chrom*", "-type", "f"],
-                           capture_output=True, text=True, timeout=15)
-        results["usr_chrom_files"] = r.stdout.strip().split("\n")
-    except Exception as e:
-        results["usr_chrom_files"] = str(e)
-
-    try:
-        r = subprocess.run(["google-chrome", "--version"],
-                           capture_output=True, text=True, timeout=10)
+        r = subprocess.run(["google-chrome", "--version"], capture_output=True, text=True, timeout=10)
         results["chrome_version"] = r.stdout.strip()
     except Exception as e:
         results["chrome_version"] = str(e)
 
     try:
-        r = subprocess.run(["chromedriver", "--version"],
-                           capture_output=True, text=True, timeout=10)
+        r = subprocess.run(["chromedriver", "--version"], capture_output=True, text=True, timeout=10)
         results["chromedriver_version"] = r.stdout.strip()
     except Exception as e:
         results["chromedriver_version"] = str(e)
@@ -171,7 +166,12 @@ def send_otp(phone: str = Query(...)):
                 continue
 
         if not phone_input:
-            return {"success": False, "error": "Phone input nahi mila", "current_url": d.current_url, "screenshot": d.get_screenshot_as_base64()}
+            return {
+                "success": False,
+                "error": "Phone input nahi mila",
+                "current_url": d.current_url,
+                "screenshot": d.get_screenshot_as_base64()
+            }
 
         phone_input.clear()
         phone_input.send_keys(phone)
@@ -238,7 +238,12 @@ def verify_otp(phone: str = Query(...), otp: str = Query(...)):
                 continue
 
         if not otp_input:
-            return {"success": False, "error": "OTP input nahi mila", "current_url": d.current_url, "screenshot": d.get_screenshot_as_base64()}
+            return {
+                "success": False,
+                "error": "OTP input nahi mila",
+                "current_url": d.current_url,
+                "screenshot": d.get_screenshot_as_base64()
+            }
 
         otp_input.clear()
         otp_input.send_keys(otp)
@@ -306,7 +311,13 @@ def get_balance():
             except:
                 continue
 
-        return {"success": True, "balance": balance, "banks": banks, "current_url": d.current_url, "screenshot": d.get_screenshot_as_base64()}
+        return {
+            "success": True,
+            "balance": balance,
+            "banks": banks,
+            "current_url": d.current_url,
+            "screenshot": d.get_screenshot_as_base64()
+        }
     except Exception as e:
         reset_driver()
         return {"success": False, "error": str(e)}
