@@ -7,6 +7,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 import shutil
+import subprocess
 
 app = FastAPI()
 
@@ -67,9 +68,49 @@ def root():
             "4_get_balance": "/get-balance",
             "full_flow": "/full-flow?phone=9876543210&otp=123456",
             "screenshot": "/screenshot",
-            "reset": "/reset"
+            "reset": "/reset",
+            "debug": "/debug-chrome"
         }
     }
+
+@app.get("/debug-chrome")
+def debug_chrome():
+    results = {}
+
+    results["chromium_which"] = shutil.which("chromium")
+    results["chromium_browser_which"] = shutil.which("chromium-browser")
+    results["chromedriver_which"] = shutil.which("chromedriver")
+    results["google_chrome_which"] = shutil.which("google-chrome")
+
+    try:
+        r = subprocess.run(["find", "/usr", "-name", "chrom*", "-type", "f"],
+                           capture_output=True, text=True, timeout=15)
+        results["usr_chrom_files"] = r.stdout.strip().split("\n")
+    except Exception as e:
+        results["usr_chrom_files"] = str(e)
+
+    try:
+        r = subprocess.run(["find", "/opt", "-name", "chrom*", "-type", "f"],
+                           capture_output=True, text=True, timeout=15)
+        results["opt_chrom_files"] = r.stdout.strip().split("\n")
+    except Exception as e:
+        results["opt_chrom_files"] = str(e)
+
+    try:
+        r = subprocess.run(["chromium", "--version"],
+                           capture_output=True, text=True, timeout=10)
+        results["chromium_version"] = r.stdout.strip()
+    except Exception as e:
+        results["chromium_version"] = str(e)
+
+    try:
+        r = subprocess.run(["chromedriver", "--version"],
+                           capture_output=True, text=True, timeout=10)
+        results["chromedriver_version"] = r.stdout.strip()
+    except Exception as e:
+        results["chromedriver_version"] = str(e)
+
+    return results
 
 @app.get("/reset")
 def reset():
@@ -289,7 +330,6 @@ def verify_otp(phone: str = Query(...), otp: str = Query(...)):
 def get_balance():
     try:
         d = get_driver()
-
         d.get("https://www.paisabazaar.com/pb-money")
         time.sleep(5)
 
