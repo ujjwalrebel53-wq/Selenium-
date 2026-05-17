@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Query
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -9,115 +10,390 @@ import base64
 
 app = FastAPI()
 
+driver = None
+
 def get_driver():
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    return webdriver.Chrome(options=options)
+    global driver
+    if driver is None:
+        options = Options()
+        options.binary_location = "/usr/bin/chromium"
+        options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1280,720")
+        options.add_argument("--single-process")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-setuid-sandbox")
+        options.add_argument("--disable-background-networking")
+        options.add_argument("--disable-default-apps")
+        options.add_argument("--disable-sync")
+        options.add_argument("--disable-translate")
+        options.add_argument("--hide-scrollbars")
+        options.add_argument("--metrics-recording-only")
+        options.add_argument("--mute-audio")
+        options.add_argument("--no-first-run")
+        options.add_argument("--safebrowsing-disable-auto-update")
+        options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
+        service = Service("/usr/bin/chromedriver")
+        driver = webdriver.Chrome(service=service, options=options)
+    return driver
+
+def reset_driver():
+    global driver
+    try:
+        if driver:
+            driver.quit()
+    except:
+        pass
+    driver = None
 
 @app.get("/")
 def root():
-    return {"status": "Paisabazar Automation Ready", "message": "Service is running"}
+    return {
+        "status": "Paisabazar Automation Ready",
+        "endpoints": {
+            "1_start": "/start",
+            "2_send_otp": "/send-otp?phone=9876543210",
+            "3_verify_otp": "/verify-otp?phone=9876543210&otp=123456",
+            "4_get_balance": "/get-balance",
+            "full_flow": "/full-flow?phone=9876543210&otp=123456",
+            "screenshot": "/screenshot",
+            "reset": "/reset"
+        }
+    }
 
-@app.get("/debug")
-def debug():
-    """Page ka HTML dekho - Selectors find karne ke liye"""
-    driver = get_driver()
+@app.get("/reset")
+def reset():
+    """Driver reset karo agar kuch galat ho"""
+    reset_driver()
+    return {"success": True, "message": "Driver reset ho gaya"}
+
+@app.get("/screenshot")
+def screenshot():
+    """Current page ka screenshot lo"""
     try:
-        driver.get("https://paisabazar.com")
-        time.sleep(5)
-        html = driver.page_source[:5000]
+        d = get_driver()
+        img = d.get_screenshot_as_base64()
+        url = d.current_url
         return {
             "success": True,
-            "title": driver.title,
-            "url": driver.current_url,
-            "html_preview": html,
-            "page_loaded": True
+            "current_url": url,
+            "screenshot_base64": img
         }
     except Exception as e:
+        reset_driver()
         return {"success": False, "error": str(e)}
-    finally:
-        driver.quit()
+
+@app.get("/start")
+def start():
+    """Step 1: PaisaBazar kholo aur Sign In page pe jao"""
+    try:
+        reset_driver()  # Fresh start
+        d = get_driver()
+        wait = WebDriverWait(d, 30)
+
+        # Website open karo
+        d.get("https://www.paisabazaar.com")
+        time.sleep(4)
+
+        current_url = d.current_url
+        page_title = d.title
+
+        # Sign In button dhundo
+        signin_selectors = [
+            "//a[contains(text(),'Sign In')]",
+            "//a[contains(text(),'Login')]",
+            "//button[contains(text(),'Sign In')]",
+            "//a[contains(@href,'login')]",
+            "//a[contains(@href,'signin')]",
+            "//*[contains(@class,'login')]//a",
+            "//*[contains(@class,'signin')]",
+        ]
+
+        clicked = False
+        for selector in signin_selectors:
+            try:
+                elem = wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
+                elem.click()
+                clicked = True
+                time.sleep(3)
+                break
+            except:
+                continue
+
+        screenshot_b64 = d.get_screenshot_as_base64()
+
+        return {
+            "success": clicked,
+            "message": "Sign In page khul gaya" if clicked else "Sign In button nahi mila, screenshot dekho",
+            "current_url": d.current_url,
+            "page_title": page_title,
+            "screenshot": screenshot_b64
+        }
+
+    except Exception as e:
+        reset_driver()
+        return {"success": False, "error": str(e)}
 
 @app.get("/send-otp")
 def send_otp(phone: str = Query(...)):
-    driver = get_driver()
+    """Step 2: Phone number dalo aur OTP mangao"""
     try:
-        driver.get("https://paisabazar.com")
-        wait = WebDriverWait(driver, 15)
-        
-        # Click Sign In
-        signin = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Sign In')]")))
-        signin.click()
-        time.sleep(2)
-        
-        # Phone input
-        phone_input = wait.until(EC.presence_of_element_located((By.NAME, "mobile")))
+        d = get_driver()
+        wait = WebDriverWait(d, 30)
+
+        # Phone input dhundo
+        phone_selectors = [
+            "//input[@type='tel']",
+            "//input[@name='mobile']",
+            "//input[@name='phone']",
+            "//input[@id='mobile']",
+            "//input[@id='phone']",
+            "//input[@placeholder[contains(.,'Mobile')]]",
+            "//input[@placeholder[contains(.,'Phone')]]",
+            "//input[@placeholder[contains(.,'mobile')]]",
+            "//input[@placeholder[contains(.,'Enter')]]",
+        ]
+
+        phone_input = None
+        for selector in phone_selectors:
+            try:
+                phone_input = wait.until(EC.presence_of_element_located((By.XPATH, selector)))
+                if phone_input.is_displayed():
+                    break
+            except:
+                continue
+
+        if not phone_input:
+            screenshot_b64 = d.get_screenshot_as_base64()
+            return {
+                "success": False,
+                "error": "Phone input nahi mila",
+                "current_url": d.current_url,
+                "screenshot": screenshot_b64
+            }
+
+        phone_input.clear()
         phone_input.send_keys(phone)
         time.sleep(1)
-        
-        # Get OTP button
-        otp_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Get OTP')]")
-        otp_btn.click()
-        time.sleep(3)
-        
-        driver.quit()
-        return {"success": True, "message": f"OTP sent to {phone}"}
+
+        # Get OTP button dhundo
+        otp_btn_selectors = [
+            "//button[contains(text(),'Get OTP')]",
+            "//button[contains(text(),'Send OTP')]",
+            "//button[contains(text(),'SEND OTP')]",
+            "//button[contains(text(),'GET OTP')]",
+            "//button[contains(text(),'Send Code')]",
+            "//button[contains(text(),'Next')]",
+            "//button[contains(text(),'Continue')]",
+            "//button[@type='submit']",
+            "//input[@type='submit']",
+        ]
+
+        btn_clicked = False
+        for selector in otp_btn_selectors:
+            try:
+                btn = d.find_element(By.XPATH, selector)
+                if btn.is_displayed() and btn.is_enabled():
+                    btn.click()
+                    btn_clicked = True
+                    time.sleep(3)
+                    break
+            except:
+                continue
+
+        screenshot_b64 = d.get_screenshot_as_base64()
+
+        return {
+            "success": btn_clicked,
+            "message": f"OTP bhej diya {phone} pe" if btn_clicked else "OTP button nahi mila",
+            "current_url": d.current_url,
+            "screenshot": screenshot_b64
+        }
+
     except Exception as e:
-        driver.quit()
+        reset_driver()
         return {"success": False, "error": str(e)}
 
-@app.get("/verify")
-def verify(phone: str = Query(...), otp: str = Query(...)):
-    driver = get_driver()
+@app.get("/verify-otp")
+def verify_otp(phone: str = Query(...), otp: str = Query(...)):
+    """Step 3: OTP verify karo aur login karo"""
     try:
-        driver.get("https://paisabazar.com")
-        wait = WebDriverWait(driver, 15)
-        
-        signin = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Sign In')]")))
-        signin.click()
-        time.sleep(2)
-        
-        phone_input = wait.until(EC.presence_of_element_located((By.NAME, "mobile")))
-        phone_input.send_keys(phone)
-        time.sleep(1)
-        
-        otp_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Get OTP')]")
-        otp_btn.click()
-        time.sleep(2)
-        
-        otp_input = wait.until(EC.presence_of_element_located((By.NAME, "otp")))
+        d = get_driver()
+        wait = WebDriverWait(d, 30)
+
+        # OTP input dhundo
+        otp_selectors = [
+            "//input[@name='otp']",
+            "//input[@id='otp']",
+            "//input[@placeholder[contains(.,'OTP')]]",
+            "//input[@placeholder[contains(.,'otp')]]",
+            "//input[@placeholder[contains(.,'Code')]]",
+            "//input[@maxlength='6']",
+            "//input[@maxlength='4']",
+            "//input[@type='number']",
+            "//input[@type='tel']",
+        ]
+
+        otp_input = None
+        for selector in otp_selectors:
+            try:
+                otp_input = wait.until(EC.presence_of_element_located((By.XPATH, selector)))
+                if otp_input.is_displayed():
+                    break
+            except:
+                continue
+
+        if not otp_input:
+            screenshot_b64 = d.get_screenshot_as_base64()
+            return {
+                "success": False,
+                "error": "OTP input field nahi mila",
+                "current_url": d.current_url,
+                "screenshot": screenshot_b64
+            }
+
+        otp_input.clear()
         otp_input.send_keys(otp)
         time.sleep(1)
-        
-        login_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Login')]")
-        login_btn.click()
+
+        # Verify/Login button click karo
+        verify_selectors = [
+            "//button[contains(text(),'Verify')]",
+            "//button[contains(text(),'Login')]",
+            "//button[contains(text(),'Submit')]",
+            "//button[contains(text(),'VERIFY')]",
+            "//button[contains(text(),'Confirm')]",
+            "//button[@type='submit']",
+        ]
+
+        for selector in verify_selectors:
+            try:
+                btn = d.find_element(By.XPATH, selector)
+                if btn.is_displayed() and btn.is_enabled():
+                    btn.click()
+                    break
+            except:
+                continue
+
         time.sleep(5)
-        
-        driver.get("https://paisabazar.com/pb-money")
-        time.sleep(3)
-        
-        balance = driver.find_element(By.CLASS_NAME, "balance-amount").text
-        
-        driver.quit()
-        return {"success": True, "balance": balance}
+
+        current_url = d.current_url
+        screenshot_b64 = d.get_screenshot_as_base64()
+
+        # Login check karo
+        login_failed = "login" in current_url.lower() or "signin" in current_url.lower()
+
+        return {
+            "success": not login_failed,
+            "message": "Login ho gaya!" if not login_failed else "Login fail - OTP galat ho sakta hai",
+            "current_url": current_url,
+            "screenshot": screenshot_b64
+        }
+
     except Exception as e:
-        driver.quit()
+        reset_driver()
         return {"success": False, "error": str(e)}
 
-@app.get("/balance")
-def balance():
-    driver = get_driver()
+@app.get("/get-balance")
+def get_balance():
+    """Step 4: PB Money balance aur banks fetch karo"""
     try:
-        driver.get("https://paisabazar.com/pb-money")
-        time.sleep(3)
-        balance = driver.find_element(By.CLASS_NAME, "balance-amount").text
-        screenshot = driver.get_screenshot_as_base64()
-        driver.quit()
-        return {"success": True, "balance": balance, "screenshot": screenshot}
+        d = get_driver()
+
+        d.get("https://www.paisabazaar.com/pb-money")
+        time.sleep(5)
+
+        screenshot_b64 = d.get_screenshot_as_base64()
+        page_text = d.find_element(By.TAG_NAME, "body").text
+
+        # Balance dhundo
+        balance = "Not found"
+        balance_selectors = [
+            "//*[contains(@class,'balance')]",
+            "//*[contains(@class,'amount')]",
+            "//h2[contains(text(),'₹')]",
+            "//h3[contains(text(),'₹')]",
+            "//*[contains(text(),'₹')]",
+        ]
+
+        for selector in balance_selectors:
+            try:
+                elem = d.find_element(By.XPATH, selector)
+                if elem.text.strip():
+                    balance = elem.text.strip()
+                    break
+            except:
+                continue
+
+        # Banks dhundo
+        banks = []
+        bank_selectors = [
+            "//*[contains(@class,'bank')]",
+            "//*[contains(@class,'account')]",
+            "//*[contains(@class,'wallet')]",
+        ]
+
+        for selector in bank_selectors:
+            try:
+                elems = d.find_elements(By.XPATH, selector)
+                for elem in elems[:5]:
+                    text = elem.text.strip()
+                    if text and len(text) > 3:
+                        banks.append(text)
+                if banks:
+                    break
+            except:
+                continue
+
+        return {
+            "success": True,
+            "balance": balance,
+            "banks": banks,
+            "current_url": d.current_url,
+            "screenshot": screenshot_b64
+        }
+
     except Exception as e:
-        driver.quit()
+        reset_driver()
         return {"success": False, "error": str(e)}
+
+@app.get("/full-flow")
+def full_flow(phone: str = Query(...), otp: str = Query(...)):
+    """Sab steps ek saath"""
+    results = {"steps": [], "success": False}
+
+    s = start()
+    results["steps"].append({"step": "Start", "result": s})
+    if not s.get("success"):
+        return results
+
+    time.sleep(2)
+
+    send = send_otp(phone)
+    results["steps"].append({"step": "Send OTP", "result": send})
+    if not send.get("success"):
+        return results
+
+    time.sleep(3)
+
+    verify = verify_otp(phone, otp)
+    results["steps"].append({"step": "Verify OTP", "result": verify})
+    if not verify.get("success"):
+        return results
+
+    time.sleep(3)
+
+    bal = get_balance()
+    results["steps"].append({"step": "Get Balance", "result": bal})
+
+    results["success"] = True
+    results["balance"] = bal.get("balance", "N/A")
+    results["banks"] = bal.get("banks", [])
+
+    return results
+
+@app.on_event("shutdown")
+def shutdown():
+    reset_driver()
