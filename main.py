@@ -10,26 +10,12 @@ import shutil
 import subprocess
 
 app = FastAPI()
-
 driver = None
 
 def get_driver():
     global driver
     if driver is None:
         options = Options()
-
-        chromium_path = (
-            shutil.which("chromium") or
-            shutil.which("chromium-browser") or
-            "/usr/bin/chromium" or
-            "/usr/bin/chromium-browser"
-        )
-        chromedriver_path = (
-            shutil.which("chromedriver") or
-            "/usr/bin/chromedriver"
-        )
-
-        options.binary_location = chromium_path
         options.add_argument("--headless")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
@@ -38,14 +24,9 @@ def get_driver():
         options.add_argument("--window-size=1280,720")
         options.add_argument("--disable-extensions")
         options.add_argument("--disable-setuid-sandbox")
-        options.add_argument("--disable-background-networking")
-        options.add_argument("--disable-default-apps")
-        options.add_argument("--disable-sync")
-        options.add_argument("--no-first-run")
         options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
-
-        service = Service(chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        # selenium/standalone-chrome image mein Chrome already set hota hai
+        driver = webdriver.Chrome(options=options)
     return driver
 
 def reset_driver():
@@ -76,11 +57,11 @@ def root():
 @app.get("/debug-chrome")
 def debug_chrome():
     results = {}
-
     results["chromium_which"] = shutil.which("chromium")
     results["chromium_browser_which"] = shutil.which("chromium-browser")
     results["chromedriver_which"] = shutil.which("chromedriver")
     results["google_chrome_which"] = shutil.which("google-chrome")
+    results["google_chrome_stable"] = shutil.which("google-chrome-stable")
 
     try:
         r = subprocess.run(["find", "/usr", "-name", "chrom*", "-type", "f"],
@@ -90,18 +71,11 @@ def debug_chrome():
         results["usr_chrom_files"] = str(e)
 
     try:
-        r = subprocess.run(["find", "/opt", "-name", "chrom*", "-type", "f"],
-                           capture_output=True, text=True, timeout=15)
-        results["opt_chrom_files"] = r.stdout.strip().split("\n")
-    except Exception as e:
-        results["opt_chrom_files"] = str(e)
-
-    try:
-        r = subprocess.run(["chromium", "--version"],
+        r = subprocess.run(["google-chrome", "--version"],
                            capture_output=True, text=True, timeout=10)
-        results["chromium_version"] = r.stdout.strip()
+        results["chrome_version"] = r.stdout.strip()
     except Exception as e:
-        results["chromium_version"] = str(e)
+        results["chrome_version"] = str(e)
 
     try:
         r = subprocess.run(["chromedriver", "--version"],
@@ -122,11 +96,7 @@ def screenshot():
     try:
         d = get_driver()
         img = d.get_screenshot_as_base64()
-        return {
-            "success": True,
-            "current_url": d.current_url,
-            "screenshot_base64": img
-        }
+        return {"success": True, "current_url": d.current_url, "screenshot_base64": img}
     except Exception as e:
         reset_driver()
         return {"success": False, "error": str(e)}
@@ -163,14 +133,12 @@ def start():
                 continue
 
         screenshot_b64 = d.get_screenshot_as_base64()
-
         return {
             "success": clicked,
             "message": "Sign In page khul gaya" if clicked else "Sign In button nahi mila",
             "current_url": d.current_url,
             "screenshot": screenshot_b64
         }
-
     except Exception as e:
         reset_driver()
         return {"success": False, "error": str(e)}
@@ -203,13 +171,7 @@ def send_otp(phone: str = Query(...)):
                 continue
 
         if not phone_input:
-            screenshot_b64 = d.get_screenshot_as_base64()
-            return {
-                "success": False,
-                "error": "Phone input nahi mila",
-                "current_url": d.current_url,
-                "screenshot": screenshot_b64
-            }
+            return {"success": False, "error": "Phone input nahi mila", "current_url": d.current_url, "screenshot": d.get_screenshot_as_base64()}
 
         phone_input.clear()
         phone_input.send_keys(phone)
@@ -238,15 +200,12 @@ def send_otp(phone: str = Query(...)):
             except:
                 continue
 
-        screenshot_b64 = d.get_screenshot_as_base64()
-
         return {
             "success": btn_clicked,
             "message": f"OTP bhej diya {phone} pe" if btn_clicked else "OTP button nahi mila",
             "current_url": d.current_url,
-            "screenshot": screenshot_b64
+            "screenshot": d.get_screenshot_as_base64()
         }
-
     except Exception as e:
         reset_driver()
         return {"success": False, "error": str(e)}
@@ -279,13 +238,7 @@ def verify_otp(phone: str = Query(...), otp: str = Query(...)):
                 continue
 
         if not otp_input:
-            screenshot_b64 = d.get_screenshot_as_base64()
-            return {
-                "success": False,
-                "error": "OTP input nahi mila",
-                "current_url": d.current_url,
-                "screenshot": screenshot_b64
-            }
+            return {"success": False, "error": "OTP input nahi mila", "current_url": d.current_url, "screenshot": d.get_screenshot_as_base64()}
 
         otp_input.clear()
         otp_input.send_keys(otp)
@@ -310,18 +263,15 @@ def verify_otp(phone: str = Query(...), otp: str = Query(...)):
                 continue
 
         time.sleep(5)
-
         current_url = d.current_url
-        screenshot_b64 = d.get_screenshot_as_base64()
         login_failed = "login" in current_url.lower() or "signin" in current_url.lower()
 
         return {
             "success": not login_failed,
             "message": "Login ho gaya!" if not login_failed else "Login fail - OTP galat ho sakta hai",
             "current_url": current_url,
-            "screenshot": screenshot_b64
+            "screenshot": d.get_screenshot_as_base64()
         }
-
     except Exception as e:
         reset_driver()
         return {"success": False, "error": str(e)}
@@ -333,18 +283,8 @@ def get_balance():
         d.get("https://www.paisabazaar.com/pb-money")
         time.sleep(5)
 
-        screenshot_b64 = d.get_screenshot_as_base64()
-
         balance = "Not found"
-        balance_selectors = [
-            "//*[contains(@class,'balance')]",
-            "//*[contains(@class,'amount')]",
-            "//h2[contains(text(),'₹')]",
-            "//h3[contains(text(),'₹')]",
-            "//*[contains(text(),'₹')]",
-        ]
-
-        for selector in balance_selectors:
+        for selector in ["//*[contains(@class,'balance')]", "//*[contains(@class,'amount')]", "//*[contains(text(),'₹')]"]:
             try:
                 elem = d.find_element(By.XPATH, selector)
                 if elem.text.strip():
@@ -354,13 +294,7 @@ def get_balance():
                 continue
 
         banks = []
-        bank_selectors = [
-            "//*[contains(@class,'bank')]",
-            "//*[contains(@class,'account')]",
-            "//*[contains(@class,'wallet')]",
-        ]
-
-        for selector in bank_selectors:
+        for selector in ["//*[contains(@class,'bank')]", "//*[contains(@class,'account')]"]:
             try:
                 elems = d.find_elements(By.XPATH, selector)
                 for elem in elems[:5]:
@@ -372,14 +306,7 @@ def get_balance():
             except:
                 continue
 
-        return {
-            "success": True,
-            "balance": balance,
-            "banks": banks,
-            "current_url": d.current_url,
-            "screenshot": screenshot_b64
-        }
-
+        return {"success": True, "balance": balance, "banks": banks, "current_url": d.current_url, "screenshot": d.get_screenshot_as_base64()}
     except Exception as e:
         reset_driver()
         return {"success": False, "error": str(e)}
@@ -392,30 +319,25 @@ def full_flow(phone: str = Query(...), otp: str = Query(...)):
     results["steps"].append({"step": "Start", "result": s})
     if not s.get("success"):
         return results
-
     time.sleep(2)
 
     send = send_otp(phone)
     results["steps"].append({"step": "Send OTP", "result": send})
     if not send.get("success"):
         return results
-
     time.sleep(3)
 
     verify = verify_otp(phone, otp)
     results["steps"].append({"step": "Verify OTP", "result": verify})
     if not verify.get("success"):
         return results
-
     time.sleep(3)
 
     bal = get_balance()
     results["steps"].append({"step": "Get Balance", "result": bal})
-
     results["success"] = True
     results["balance"] = bal.get("balance", "N/A")
     results["banks"] = bal.get("banks", [])
-
     return results
 
 @app.on_event("shutdown")
