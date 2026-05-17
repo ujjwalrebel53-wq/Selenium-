@@ -6,7 +6,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
-import base64
+import shutil
 
 app = FastAPI()
 
@@ -16,26 +16,34 @@ def get_driver():
     global driver
     if driver is None:
         options = Options()
-        options.binary_location = "/usr/bin/chromium"
+
+        chromium_path = (
+            shutil.which("chromium") or
+            shutil.which("chromium-browser") or
+            "/usr/bin/chromium" or
+            "/usr/bin/chromium-browser"
+        )
+        chromedriver_path = (
+            shutil.which("chromedriver") or
+            "/usr/bin/chromedriver"
+        )
+
+        options.binary_location = chromium_path
         options.add_argument("--headless")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
-        options.add_argument("--window-size=1280,720")
         options.add_argument("--single-process")
+        options.add_argument("--window-size=1280,720")
         options.add_argument("--disable-extensions")
         options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--disable-background-networking")
         options.add_argument("--disable-default-apps")
         options.add_argument("--disable-sync")
-        options.add_argument("--disable-translate")
-        options.add_argument("--hide-scrollbars")
-        options.add_argument("--metrics-recording-only")
-        options.add_argument("--mute-audio")
         options.add_argument("--no-first-run")
-        options.add_argument("--safebrowsing-disable-auto-update")
         options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
-        service = Service("/usr/bin/chromedriver")
+
+        service = Service(chromedriver_path)
         driver = webdriver.Chrome(service=service, options=options)
     return driver
 
@@ -65,20 +73,17 @@ def root():
 
 @app.get("/reset")
 def reset():
-    """Driver reset karo agar kuch galat ho"""
     reset_driver()
     return {"success": True, "message": "Driver reset ho gaya"}
 
 @app.get("/screenshot")
 def screenshot():
-    """Current page ka screenshot lo"""
     try:
         d = get_driver()
         img = d.get_screenshot_as_base64()
-        url = d.current_url
         return {
             "success": True,
-            "current_url": url,
+            "current_url": d.current_url,
             "screenshot_base64": img
         }
     except Exception as e:
@@ -87,20 +92,14 @@ def screenshot():
 
 @app.get("/start")
 def start():
-    """Step 1: PaisaBazar kholo aur Sign In page pe jao"""
     try:
-        reset_driver()  # Fresh start
+        reset_driver()
         d = get_driver()
         wait = WebDriverWait(d, 30)
 
-        # Website open karo
         d.get("https://www.paisabazaar.com")
         time.sleep(4)
 
-        current_url = d.current_url
-        page_title = d.title
-
-        # Sign In button dhundo
         signin_selectors = [
             "//a[contains(text(),'Sign In')]",
             "//a[contains(text(),'Login')]",
@@ -126,9 +125,8 @@ def start():
 
         return {
             "success": clicked,
-            "message": "Sign In page khul gaya" if clicked else "Sign In button nahi mila, screenshot dekho",
+            "message": "Sign In page khul gaya" if clicked else "Sign In button nahi mila",
             "current_url": d.current_url,
-            "page_title": page_title,
             "screenshot": screenshot_b64
         }
 
@@ -138,22 +136,20 @@ def start():
 
 @app.get("/send-otp")
 def send_otp(phone: str = Query(...)):
-    """Step 2: Phone number dalo aur OTP mangao"""
     try:
         d = get_driver()
         wait = WebDriverWait(d, 30)
 
-        # Phone input dhundo
         phone_selectors = [
             "//input[@type='tel']",
             "//input[@name='mobile']",
             "//input[@name='phone']",
             "//input[@id='mobile']",
             "//input[@id='phone']",
-            "//input[@placeholder[contains(.,'Mobile')]]",
-            "//input[@placeholder[contains(.,'Phone')]]",
-            "//input[@placeholder[contains(.,'mobile')]]",
-            "//input[@placeholder[contains(.,'Enter')]]",
+            "//input[contains(@placeholder,'Mobile')]",
+            "//input[contains(@placeholder,'Phone')]",
+            "//input[contains(@placeholder,'mobile')]",
+            "//input[contains(@placeholder,'Enter')]",
         ]
 
         phone_input = None
@@ -178,13 +174,11 @@ def send_otp(phone: str = Query(...)):
         phone_input.send_keys(phone)
         time.sleep(1)
 
-        # Get OTP button dhundo
         otp_btn_selectors = [
             "//button[contains(text(),'Get OTP')]",
             "//button[contains(text(),'Send OTP')]",
             "//button[contains(text(),'SEND OTP')]",
             "//button[contains(text(),'GET OTP')]",
-            "//button[contains(text(),'Send Code')]",
             "//button[contains(text(),'Next')]",
             "//button[contains(text(),'Continue')]",
             "//button[@type='submit']",
@@ -218,18 +212,16 @@ def send_otp(phone: str = Query(...)):
 
 @app.get("/verify-otp")
 def verify_otp(phone: str = Query(...), otp: str = Query(...)):
-    """Step 3: OTP verify karo aur login karo"""
     try:
         d = get_driver()
         wait = WebDriverWait(d, 30)
 
-        # OTP input dhundo
         otp_selectors = [
             "//input[@name='otp']",
             "//input[@id='otp']",
-            "//input[@placeholder[contains(.,'OTP')]]",
-            "//input[@placeholder[contains(.,'otp')]]",
-            "//input[@placeholder[contains(.,'Code')]]",
+            "//input[contains(@placeholder,'OTP')]",
+            "//input[contains(@placeholder,'otp')]",
+            "//input[contains(@placeholder,'Code')]",
             "//input[@maxlength='6']",
             "//input[@maxlength='4']",
             "//input[@type='number']",
@@ -249,7 +241,7 @@ def verify_otp(phone: str = Query(...), otp: str = Query(...)):
             screenshot_b64 = d.get_screenshot_as_base64()
             return {
                 "success": False,
-                "error": "OTP input field nahi mila",
+                "error": "OTP input nahi mila",
                 "current_url": d.current_url,
                 "screenshot": screenshot_b64
             }
@@ -258,7 +250,6 @@ def verify_otp(phone: str = Query(...), otp: str = Query(...)):
         otp_input.send_keys(otp)
         time.sleep(1)
 
-        # Verify/Login button click karo
         verify_selectors = [
             "//button[contains(text(),'Verify')]",
             "//button[contains(text(),'Login')]",
@@ -281,8 +272,6 @@ def verify_otp(phone: str = Query(...), otp: str = Query(...)):
 
         current_url = d.current_url
         screenshot_b64 = d.get_screenshot_as_base64()
-
-        # Login check karo
         login_failed = "login" in current_url.lower() or "signin" in current_url.lower()
 
         return {
@@ -298,7 +287,6 @@ def verify_otp(phone: str = Query(...), otp: str = Query(...)):
 
 @app.get("/get-balance")
 def get_balance():
-    """Step 4: PB Money balance aur banks fetch karo"""
     try:
         d = get_driver()
 
@@ -306,9 +294,7 @@ def get_balance():
         time.sleep(5)
 
         screenshot_b64 = d.get_screenshot_as_base64()
-        page_text = d.find_element(By.TAG_NAME, "body").text
 
-        # Balance dhundo
         balance = "Not found"
         balance_selectors = [
             "//*[contains(@class,'balance')]",
@@ -327,7 +313,6 @@ def get_balance():
             except:
                 continue
 
-        # Banks dhundo
         banks = []
         bank_selectors = [
             "//*[contains(@class,'bank')]",
@@ -361,7 +346,6 @@ def get_balance():
 
 @app.get("/full-flow")
 def full_flow(phone: str = Query(...), otp: str = Query(...)):
-    """Sab steps ek saath"""
     results = {"steps": [], "success": False}
 
     s = start()
