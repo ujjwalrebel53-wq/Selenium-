@@ -22,9 +22,25 @@ def get_driver():
 def root():
     return {"status": "Paisabazar Automation Ready", "message": "Service is running"}
 
-@app.get("/check")
-def check():
-    return {"status": "alive"}
+@app.get("/debug")
+def debug():
+    """Page ka HTML dekho - Selectors find karne ke liye"""
+    driver = get_driver()
+    try:
+        driver.get("https://paisabazar.com")
+        time.sleep(5)
+        html = driver.page_source[:5000]
+        return {
+            "success": True,
+            "title": driver.title,
+            "url": driver.current_url,
+            "html_preview": html,
+            "page_loaded": True
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        driver.quit()
 
 @app.get("/send-otp")
 def send_otp(phone: str = Query(...)):
@@ -38,12 +54,12 @@ def send_otp(phone: str = Query(...)):
         signin.click()
         time.sleep(2)
         
-        # Enter phone
+        # Phone input
         phone_input = wait.until(EC.presence_of_element_located((By.NAME, "mobile")))
         phone_input.send_keys(phone)
         time.sleep(1)
         
-        # Click Get OTP
+        # Get OTP button
         otp_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Get OTP')]")
         otp_btn.click()
         time.sleep(3)
@@ -61,32 +77,26 @@ def verify(phone: str = Query(...), otp: str = Query(...)):
         driver.get("https://paisabazar.com")
         wait = WebDriverWait(driver, 15)
         
-        # Sign In
         signin = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Sign In')]")))
         signin.click()
         time.sleep(2)
         
-        # Enter phone
         phone_input = wait.until(EC.presence_of_element_located((By.NAME, "mobile")))
         phone_input.send_keys(phone)
         time.sleep(1)
         
-        # Get OTP
         otp_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Get OTP')]")
         otp_btn.click()
         time.sleep(2)
         
-        # Enter OTP
         otp_input = wait.until(EC.presence_of_element_located((By.NAME, "otp")))
         otp_input.send_keys(otp)
         time.sleep(1)
         
-        # Login
         login_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Login')]")
         login_btn.click()
         time.sleep(5)
         
-        # Get balance
         driver.get("https://paisabazar.com/pb-money")
         time.sleep(3)
         
